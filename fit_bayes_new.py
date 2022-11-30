@@ -161,19 +161,22 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
     for param in parameters_to_fit:  # set weight as x * range
         if model.parameter_cardinality[param] > 1:
             for card in range(model.parameter_cardinality[param]):
-                w[param][card] = 0.01 * np.abs(np.subtract(w[param][card, 1], w[param][card, 0]))
+                w[param][card] = 0.001 * np.abs(np.subtract(w[param][card, 1], w[param][card, 0]))
+                # w[param][card] = 0.01 * np.abs(np.subtract(w[param][card, 1], w[param][card, 0]))
                 # w[param][card] = 0.05 * np.abs(np.subtract(w[param][card, 1], w[param][card, 0]))
                 # w[param][card] = 0.1 * np.abs(np.subtract(w[param][card, 1], w[param][card, 0]))
             w[param] = w[param][range(model.parameter_cardinality[param]), 0]
             w[param] = np.tile(w[param], (nvox, 1))  # tile to create weight for each voxel
         elif model.parameter_cardinality[param] == 1 and param != 'partial_volume_0':
+            w[param] = 0.001 * np.abs(np.subtract(w[param][1], w[param][0]))
             # w[param] = 0.01 * np.abs(np.subtract(w[param][1], w[param][0]))
-            w[param] = 0.05 * np.abs(np.subtract(w[param][1], w[param][0]))
+            # w[param] = 0.05 * np.abs(np.subtract(w[param][1], w[param][0]))
             # w[param] = 0.1 * np.abs(np.subtract(w[param][1], w[param][0]))
             w[param] = np.tile(w[param], nvox)  # tile to create weight for each voxel
         elif model.parameter_cardinality[param] == 1 and param == 'partial_volume_0':
+            w[param] = 0.001 * np.abs(np.subtract(w[param][1], w[param][0]))
             # w[param] = 0.03 * np.abs(np.subtract(w[param][1], w[param][0]))
-            w[param] = 0.05 * np.abs(np.subtract(w[param][1], w[param][0]))
+            # w[param] = 0.05 * np.abs(np.subtract(w[param][1], w[param][0]))
             # w[param] = 0.1 * np.abs(np.subtract(w[param][1], w[param][0]))
             w[param] = np.tile(w[param], nvox)  # tile to create weight for each voxel
 

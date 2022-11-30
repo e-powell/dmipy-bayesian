@@ -19,7 +19,20 @@ import numpy as np
 from copy import copy, deepcopy
 import scipy
 import matplotlib.pyplot as plt
+from contextlib import contextmanager
+import sys, os
 
+
+# To temporarily suppress output to console
+@contextmanager
+def suppress_stdout():
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        sys.stdout = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
 
 # NOTE: will need fix if other models have parameters with cardinality > 1 (other than orientation)
 def tform_params(param_dict, parameter_names, model, direction):
@@ -31,20 +44,9 @@ def tform_params(param_dict, parameter_names, model, direction):
                 # parameters shouldn't ever reach bounds (i.e. from sampling in Metropolis Hastings step)
                 lb = (model.parameter_ranges[param][0] - 1e-5) * model.parameter_scales[param]  # lower bound
                 ub = (model.parameter_ranges[param][1] + 1e-5) * model.parameter_scales[param]  # upper bound
+                # lb = (model.parameter_ranges[param][0] - np.finfo(np.float32).eps) * model.parameter_scales[param]  # lower bound
+                # ub = (model.parameter_ranges[param][1] + np.finfo(np.float32).eps) * model.parameter_scales[param]  # upper bound
                 param_dict[param] = np.log(param_dict[param] - lb) - np.log(ub - param_dict[param])
-            # else:
-            #     for card in range(model.parameter_cardinality[param]):
-            #         lb = (model.parameter_ranges[param][card][0]) * model.parameter_scales[param][card]  # lower bound
-            #         ub = (model.parameter_ranges[param][card][1]) * model.parameter_scales[param][card]  # upper bound
-            #         r = ub - lb
-            #         condition = 0
-            #         while condition == 0:
-            #             idx_above = [xx for xx, x in enumerate(param_dict[param][:, card] > ub) if x]
-            #             idx_below = [xx for xx, x in enumerate(param_dict[param][:, card] < lb) if x]
-            #             param_dict[param][idx_above, card] = param_dict[param][idx_above, card] - r
-            #             param_dict[param][idx_below, card] = param_dict[param][idx_below, card] + r
-            #             if (idx_above == []) & (idx_below == []):
-            #                 condition = 1
 
     elif direction == 'r':
         for param in parameter_names:
@@ -53,30 +55,21 @@ def tform_params(param_dict, parameter_names, model, direction):
                 # parameters shouldn't ever reach bounds (i.e. from sampling in Metropolis Hastings step)
                 lb = (model.parameter_ranges[param][0] - 1e-5) * model.parameter_scales[param]  # lower bound
                 ub = (model.parameter_ranges[param][1] + 1e-5) * model.parameter_scales[param]  # upper bound
+                # lb = (model.parameter_ranges[param][0] - np.finfo(np.float32).eps) * model.parameter_scales[param]  # lower bound
+                # ub = (model.parameter_ranges[param][1] + np.finfo(np.float32).eps) * model.parameter_scales[param]  # upper bound
                 param_dict[param] = (lb + ub * np.exp(param_dict[param])) / (1 + np.exp(param_dict[param]))
                 param_dict[param] = [ub if np.isnan(x) else x for x in param_dict[param]]
-            # else:
-            #     for card in range(model.parameter_cardinality[param]):
-            #         lb = (model.parameter_ranges[param][card][0]) * model.parameter_scales[param][card]  # lower bound
-            #         ub = (model.parameter_ranges[param][card][1]) * model.parameter_scales[param][card]  # upper bound
-            #         r = ub - lb
-            #         condition = 0
-            #         while condition == 0:
-            #             idx_above = [xx for xx, x in enumerate(param_dict[param][:, card] > ub) if x]
-            #             idx_below = [xx for xx, x in enumerate(param_dict[param][:, card] < lb) if x]
-            #             param_dict[param][idx_above, card] = param_dict[param][idx_above, card] - r
-            #             param_dict[param][idx_below, card] = param_dict[param][idx_below, card] + r
-            #             if (idx_above == []) & (idx_below == []):
-            #                 condition = 1
+
     else:
-        print('Incorrect input! Nothing is happening...')
+        print('Incorrect input! Nothing is happening...', flush=True)
 
     return param_dict
 
 
 # FIXME: create as class like modelling_framework.py?
-def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, burn_in=500):
+def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps=1000, burn_in=500):
     # FIXME: data checks?
+    print(' >> at start of fit_bayes.fit', flush=True)  # ecap
 
     # set mask default
     if mask is None:
@@ -92,6 +85,7 @@ def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, b
     ncomp = model.partial_volume_names.__len__()
 
     # extract ROIs if present in mask; check enough voxels in each ROI to avoid df error in sigma calculation
+    print(' >> extracting ROIs', flush=True)  # ecap
     roi_vals = np.unique(mask)[np.unique(mask) > 0]  # list of unique integers that identify each ROI (ignore 0's)
     roi_nvox = [[xx for xx, x in enumerate(mask == roi_vals[roi]) if x].__len__() for roi in range(roi_vals.__len__())] # number of voxels in each ROI
     to_remove = [roi for roi in range(roi_vals.__len__()) if roi_nvox[roi] < 2 * nparams] # indices of ROIs with too few voxels
@@ -102,27 +96,34 @@ def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, b
     # lsq_fit = model.fit(acq_scheme, data, mask=mask)
 
     # get number of compartments; only fit no. compartments - 1
-    parameters_to_fit = [name for name in model.parameter_names if name != model.partial_volume_names[-1]]
-    dependent_fraction = model.partial_volume_names[-1]
-
-    # remove dependent volume fraction from model
+    print(' >> setting up dictionary', flush=True)  # ecap
     model_reduced = deepcopy(model)
-    del model_reduced.parameter_ranges[dependent_fraction]
-    del model_reduced.parameter_cardinality[dependent_fraction]
-    del model_reduced.parameter_scales[dependent_fraction]
-    del model_reduced.parameter_types[dependent_fraction]
-    del model_reduced.parameter_optimization_flags[dependent_fraction]
+    if model.partial_volume_names.__len__() > 0:
+        parameters_to_fit = [name for name in model.parameter_names if name != model.partial_volume_names[-1]]
+        dependent_fraction = model.partial_volume_names[-1]
+        # remove dependent volume fraction from model
+        del model_reduced.parameter_ranges[dependent_fraction]
+        del model_reduced.parameter_cardinality[dependent_fraction]
+        del model_reduced.parameter_scales[dependent_fraction]
+        del model_reduced.parameter_types[dependent_fraction]
+        del model_reduced.parameter_optimization_flags[dependent_fraction]
+    else:
+        parameters_to_fit = [name for name in model.parameter_names]
+        dependent_fraction = ''
+    nparams_red = np.sum(np.array(list(model_reduced.parameter_cardinality.values())))  ## ecap edit 20/07/22. nparams -> nparams_red from here on
 
     # create dictionary of model parameter names and LSQ fit values
     init_param = dict.fromkeys(model.parameter_names)
     for param in model.parameter_names:
         print(param)
         init_param[param] = np.squeeze(np.nan * np.ones([nvox, model.parameter_cardinality[param]]))
-        init_param[param][mask > 0, ] = parameter_vector_lsq[param][mask > 0]
+        # init_param[param][mask > 0, ] = parameter_vector_init[param][mask > 0]
+        init_param[param][mask > 0, ] = np.squeeze(parameter_vector_init[param][mask > 0])
 
     # TODO: remove perturbations from final version
+    '''
     # perturb params for testing
-    idx_roi = [xx for xx, x in enumerate(mask == roi_vals[0]) if x]
+    # idx_roi = [xx for xx, x in enumerate(mask == roi_vals[0]) if x]
     # vox0 = idx_roi[0]
     # vox1 = idx_roi[1]
     # vox2 = idx_roi[2]
@@ -143,6 +144,7 @@ def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, b
     # init_param['partial_volume_0'][vox2] = init_param['partial_volume_0'][vox2] * 1.3                      # fpar
     # init_param['C1Stick_1_mu'][vox3, 0] = init_param['C1Stick_1_mu'][vox3, 0] * 1.3                        # mu
     # fig, ax = plt.subplots()
+    '''
 
     # create dict of LSQ fit values, original values
     params_all_orig = deepcopy(init_param)
@@ -151,6 +153,7 @@ def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, b
 
     # TODO: play with weights created from ranges - affects convergence
     # initial weights for Metropolis-Hastings parameter sampling
+    print(' >> setting up weights', flush=True)  # ecap
     w = dict.fromkeys(parameters_to_fit)
     for param in parameters_to_fit:  # get scaled parameter ranges
         w[param] = (np.array(model.parameter_ranges[param])) * model.parameter_scales[param]
@@ -158,13 +161,20 @@ def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, b
     for param in parameters_to_fit:  # set weight as x * range
         if model.parameter_cardinality[param] > 1:
             for card in range(model.parameter_cardinality[param]):
-                # w[param][card] = 0.01 * np.abs(np.subtract(w[param][card, 1], w[param][card, 0]))
-                w[param][card] = 0.05 * np.abs(np.subtract(w[param][card, 1], w[param][card, 0]))
+                w[param][card] = 0.01 * np.abs(np.subtract(w[param][card, 1], w[param][card, 0]))
+                # w[param][card] = 0.05 * np.abs(np.subtract(w[param][card, 1], w[param][card, 0]))
+                # w[param][card] = 0.1 * np.abs(np.subtract(w[param][card, 1], w[param][card, 0]))
             w[param] = w[param][range(model.parameter_cardinality[param]), 0]
             w[param] = np.tile(w[param], (nvox, 1))  # tile to create weight for each voxel
-        elif model.parameter_cardinality[param] == 1:
-            # w[param] = 0.01 * np.abs(np.subtract(w[param][1], w[param][0]))
-            w[param] = 0.05 * np.abs(np.subtract(w[param][1], w[param][0]))
+        elif model.parameter_cardinality[param] == 1 and param != 'partial_volume_0':
+            w[param] = 0.01 * np.abs(np.subtract(w[param][1], w[param][0]))
+            # w[param] = 0.05 * np.abs(np.subtract(w[param][1], w[param][0]))
+            # w[param] = 0.1 * np.abs(np.subtract(w[param][1], w[param][0]))
+            w[param] = np.tile(w[param], nvox)  # tile to create weight for each voxel
+        elif model.parameter_cardinality[param] == 1 and param == 'partial_volume_0':
+            w[param] = 0.03 * np.abs(np.subtract(w[param][1], w[param][0]))
+            # w[param] = 0.05 * np.abs(np.subtract(w[param][1], w[param][0]))
+            # w[param] = 0.1 * np.abs(np.subtract(w[param][1], w[param][0]))
             w[param] = np.tile(w[param], nvox)  # tile to create weight for each voxel
 
 
@@ -180,41 +190,59 @@ def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, b
 
 
     # measured signals
-    E_dat = data  # [mask > 0]
+    # E_dat = data  # [mask > 0]
 
-    # initial LSQ-estimated signals
-    E_fit = np.array([model.simulate_signal(acq_scheme, model.parameters_to_parameter_vector(**params_all_orig)[i, :])
-                      for i in range(nvox)])
+    # # initial LSQ-estimated signals
+    # print(' >> simulating signals', flush=True)  # ecap
+    # E_fit = np.zeros(np.shape(E_dat))
+    # # with suppress_stdout():  # suppress annoying output in console
+    # #     E_fit[np.nonzero(mask)[0], :] = np.array([model.simulate_signal(acq_scheme, model.parameters_to_parameter_vector(**params_all_orig)[i, :])
+    # #                                         for i in np.nonzero(mask)[0]])  # range(nvox)])
+    # with suppress_stdout():  # suppress annoying output in console
+    #     E_fit[np.nonzero(mask)[0], :] = model.simulate_signal(acq_scheme, model.parameters_to_parameter_vector(**params_all_orig)[np.nonzero(mask)[0], :])
 
     # initialise variables to track state of optimisation at each step (each parameter tracked independently)
     accepted = dict.fromkeys(parameters_to_fit)                         # total accepted moves over all steps
     accepted_per_100 = dict.fromkeys(parameters_to_fit)                 # accepted moves per 100 steps (updates weights)
     acceptance_rate = dict.fromkeys(parameters_to_fit)                  # accepted moves at each step
     param_conv = dict.fromkeys(parameters_to_fit)                       # parameter convergence
-    gibbs_mu = np.zeros((nroi, nparams - 1, nsteps))                    # gibbs mu at each step
-    gibbs_sigma = np.zeros((nroi, nparams - 1, nparams - 1, nsteps))    # gibbs sigma at each step
+    # gibbs_mu = np.zeros((nroi, nparams - 1, nsteps))                    # gibbs mu at each step
+    gibbs_mu = np.zeros((nroi, nparams_red, nsteps))                    # gibbs mu at each step
+    # gibbs_sigma = np.zeros((nroi, nparams - 1, nparams - 1, nsteps))    # gibbs sigma at each step
+    gibbs_sigma = np.zeros((nroi, nparams_red, nparams_red, nsteps))    # gibbs sigma at each step
     likelihood_stored = dict.fromkeys(parameters_to_fit)                # likelihood at each step
     w_stored = dict.fromkeys(parameters_to_fit)                         # weights at each weight update
 
     # initialise dictionaries (param_conv, accepted, accepted_per_100, acceptance_rate)
+    print(' >> initialising dictionaries', flush=True)  # ecap
     for param in parameters_to_fit:
-        print(param)
-        accepted[param] = np.squeeze(np.zeros((nvox, model.parameter_cardinality[param])))
-        accepted_per_100[param] = np.squeeze(np.zeros((nvox, model.parameter_cardinality[param])))
-        acceptance_rate[param] = np.squeeze(np.zeros((nvox, model.parameter_cardinality[param], nsteps)))
-        param_conv[param] = np.squeeze(np.zeros((nvox, model.parameter_cardinality[param], nsteps)))
-        likelihood_stored[param] = np.squeeze(np.zeros((nvox, model.parameter_cardinality[param], nsteps)))
-        w_stored[param] = np.squeeze(np.zeros((nvox, model.parameter_cardinality[param], np.int(np.floor(burn_in/200)+1))))
+        # print(param)
+        accepted[param] = np.squeeze(np.zeros((nvox, model.parameter_cardinality[param]), dtype=np.float32))
+        accepted_per_100[param] = np.squeeze(np.zeros((nvox, model.parameter_cardinality[param]), dtype=np.float32))
+        acceptance_rate[param] = np.squeeze(np.zeros((nvox, model.parameter_cardinality[param], nsteps), dtype=np.float32))
+        param_conv[param] = np.squeeze(np.zeros((nvox, model.parameter_cardinality[param], nsteps), dtype=np.float32))
+        likelihood_stored[param] = np.squeeze(np.zeros((nvox, model.parameter_cardinality[param], nsteps), dtype=np.float32))
+        w_stored[param] = np.squeeze(np.zeros((nvox, model.parameter_cardinality[param], np.int(np.floor(burn_in/200)+1)), dtype=np.float32))
         if model.parameter_cardinality[param] > 1:
             for card in range(model.parameter_cardinality[param]):
                 w_stored[param][:, card, 0] = w[param][:, card]
         else:
             w_stored[param][:, 0] = w[param]
 
-    #------------------------------------------- MCMC ------------------------------------------------------------------
+    # ------------------------------------------------------------------------------------------------------------------
+    #------------------------------------------------------ MCMC -------------------------------------------------------
     # loop over ROIs
-    for roi in range(nroi):
+    # for roi in range(nroi):
+    print(' >> starting loop', flush=True)  # ecap
+    for roi in range(nroi):  # FIXME: range(nroi) gives e.g. 0,1 when just 1 ROI. Better to use nroi.length?
         idx_roi = [xx for xx, x in enumerate(mask == roi_vals[roi]) if x]  # indices into mask of voxels in ROI
+        # remove any voxels where estimated signal is nan. FIXME: why are they nan?!
+        # nanvox1 = np.where(np.asarray([np.isnan(E_fit[idx_roi[i], :]).sum() for i in range(idx_roi.__len__())]) > 0)[0]
+        # nanvox2 = np.where(np.asarray([(data[idx_roi[i], :] == 0).sum() for i in range(idx_roi.__len__())]) > 0)[0]
+        # rmvox = [idx_roi.pop(i) for i in np.concatenate((nanvox1, nanvox2))]  # removed voxels; idx_roi now doesn't contain rmvox
+        # tmp = np.transpose(model_reduced.parameters_to_parameter_vector(**params_all_tform)[idx_roi])
+        # np.asarray(np.isnan(tmp[0, :])).sum()
+        # np.asarray(np.isnan(tmp[1, :])).sum()
         nvox_roi = idx_roi.__len__()  # no. voxels in ROI
         # initialise sigma for this ROI
         sigma = np.cov(np.transpose(model_reduced.parameters_to_parameter_vector(**params_all_tform)[idx_roi]))
@@ -222,17 +250,19 @@ def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, b
 
         # NB i (voxel loop) and j (MC loop) in keeping with Orton paper
         for j in range(0, nsteps):
-            print(j)
+            print('mcmc step = ' + str(j) + '/' + str(nsteps), flush=True)
             # Gibbs moves to update priors.
             # Gibbs 1. sample mu from multivariate normal dist defined by current param estimates.
             parameter_vector = model_reduced.parameters_to_parameter_vector(**params_all_tform)[idx_roi, :]
             m = np.mean(parameter_vector, axis=0)
             V = sigma / nvox_roi
+            # print([m, V, sigma, nvox_roi])
             mu = np.random.multivariate_normal(m, V)
             # Gibbs 2. sample sigma from inverse Wishart distribution (using newly updated mu)
             phi = np.sum([np.outer(parameter_vector[i, :] - mu, parameter_vector[i, :] - mu)
                           for i in range(0, nvox_roi)], axis=0)
-            sigma = scipy.stats.invwishart(scale=phi, df=nvox_roi - nparams - 1).rvs()
+            # sigma = scipy.stats.invwishart(scale=phi, df=nvox_roi - nparams - 1).rvs()
+            sigma = scipy.stats.invwishart(scale=phi, df=nvox_roi - nparams_red - 1).rvs()
 
             # save Gibbs parameters for this step (careful of parameter ordering)
             gibbs_mu[roi, :, j] = copy(mu)
@@ -242,6 +272,7 @@ def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, b
             params_all_new = deepcopy(params_all_tform)
             # NOTE: both direction parameters are updated at the same time
             for p in parameters_to_fit:
+                print('param = ' + p)
                 # sample parameter
                 if model.parameter_cardinality[p] > 1:
                     for card in range(model.parameter_cardinality[p]):
@@ -253,7 +284,7 @@ def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, b
 
                 # if a volume fraction was sampled, re-compute dependent fraction
                 # create boolean prior to avoid sum(volume fractions) > 1
-                if 'partial_volume_' in p:
+                if 'partial_volume_' in p and dependent_fraction != '':
                     f_indep = [params_all_new[name][idx_roi] for name in model.partial_volume_names
                                if name != dependent_fraction]
                     f_indep = np.exp(f_indep) / (1 + np.exp(f_indep))  # tform indept fractions (log -> orig)
@@ -268,7 +299,7 @@ def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, b
                     prior_new = np.log(np.ones(nvox_roi))  # dummy prior otherwise
 
                 # compute acceptance
-                y = copy(E_dat[idx_roi, :])  # actual measured signal
+                y = copy(data[idx_roi, :])   # actual measured signal
                 g = copy(E_fit[idx_roi, :])  # model-predicted signal (old params)
 
                 parameter_vector = tform_params(params_all_new, model.parameter_names, model, 'r')
@@ -332,6 +363,9 @@ def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, b
                 elif model.parameter_cardinality[p] == 1:
                     param_conv[p][idx_roi, j] = np.array(tform_params(params_all_tform, model.parameter_names, model, 'r')[p])[idx_roi]
                     acceptance_rate[p][idx_roi, j] = accepted[p][idx_roi] / (j + 1)  # * nvox_roi)
+                    # print('calc for param_conv = ' + str(np.array(tform_params(params_all_tform, model.parameter_names, model, 'r')[p])[idx_roi]))
+                    # print('param_conv[p][idx_roi, j] = ' + str(param_conv[p][idx_roi, j]))
+                    # print('acceptance_rate[p][idx_roi, j] = ' + str(acceptance_rate[p][idx_roi, j]))
 
             if np.remainder(j, 100) == 0 and 0 < j <= burn_in / 2:
                 for param in parameters_to_fit:
@@ -380,7 +414,7 @@ def fit(model, acq_scheme, data, parameter_vector_lsq, mask=None, nsteps=1000, b
         elif model.parameter_cardinality[param] == 1:
             params_all[param] = np.mean(param_conv[param][:, burn_in:-1], axis=1)
 
-    parameter_vector_bayes = params_all
-    parameter_vector_init = params_all_orig
+    # parameter_vector_bayes = params_all
+    # parameter_vector_init = params_all_orig
 
-    return acceptance_rate, param_conv, params_all, params_all_orig, likelihood_stored, w_stored
+    return acceptance_rate, param_conv, params_all, likelihood_stored, w_stored

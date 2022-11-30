@@ -6,6 +6,8 @@ import sys
 import os
 
 from dmipy.core.acquisition_scheme import acquisition_scheme_from_bvalues
+from dipy.core.gradients import gradient_table
+import dipy.reconst.dti as dti
 
 
 # to temporarily suppress output to console
@@ -95,4 +97,49 @@ def add_noise(data, snr=50):
     data_noisy = np.sqrt(data_real**2 + data_imag**2)
 
     return data_noisy
+
+
+# create ROI mask using tensor model fit to signals
+def mask_from_tensor_model(signals, acq_scheme):
+    
+    # set up the dipy aquisition
+    gtab = gradient_table(acq_scheme.bvalues, acq_scheme.gradient_directions)
+    tenmodel = dti.TensorModel(gtab)
+    tenfit = tenmodel.fit(signals)
+    
+    # threshold md and fa to estimate the ROI mask
+    md_thresh = 1.5e-9
+    fa_thresh = 0.8
+
+    roi_mask = np.zeros_like(roi_mask_gt)
+
+    # white matter - less than md threshold and higher than fa threshold
+    roi_mask[(tenfit.md < md_thresh) & (tenfit.fa > fa_thresh)] = 1
+    # grey matter - less than md threshold and less than fa threshold
+    roi_mask[(tenfit.md < md_thresh) & (tenfit.fa < fa_thresh)] = 2
+    # csf - higher than md threshold and lower than fa threshold
+    roi_mask[(tenfit.md > md_thresh) & (tenfit.fa < fa_thresh)] = 3
+    
+    # plt.plot(tenfit.fa)
+    # plt.plot(tenfit.md)
+    
+    return roi_mask
+    
+
+# check no LSQ fits hit boundaries; add/sub eps if so
+def check_lsq_fit(model, parameters_lsq_dict):
+    for param in model.parameter_names:  
+        if model.parameter_cardinality[param] > 1:
+            for card in range(model.parameter_cardinality[param]):
+                idx = parameters_lsq_dict[param][:, card] <= model.parameter_ranges[param][card][0] * model.parameter_scales[param]
+                parameters_lsq_dict[param][idx, card] = (model.parameter_ranges[param][card][0] + np.finfo(float).eps) * model.parameter_scales[param][card]
+                idx = parameters_lsq_dict[param][:, card] >= model.parameter_ranges[param][card][1] * model.parameter_scales[param]
+                parameters_lsq_dict[param][idx, card] = (model.parameter_ranges[param][card][1] - np.finfo(float).eps) * model.parameter_scales[param][card]
+        elif model.parameter_cardinality[param] == 1:
+            idx = parameters_lsq_dict[param] <= model.parameter_ranges[param][0] * model.parameter_scales[param]
+            parameters_lsq_dict[param][idx] = (model.parameter_ranges[param][0] + np.finfo(float).eps) * model.parameter_scales[param]
+            idx = parameters_lsq_dict[param] >= model.parameter_ranges[param][1] * model.parameter_scales[param]
+            parameters_lsq_dict[param][idx] = (model.parameter_ranges[param][1] - np.finfo(float).eps) * model.parameter_scales[param]
+   
+    return parameters_lsq_dict
     

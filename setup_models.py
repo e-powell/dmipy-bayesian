@@ -49,19 +49,58 @@ def _smt():
     return smt
 
 
-# ball, stick, zeppelin; spherical mean (ecap currently can't fit, memory errors, 22/07/22)
-def _bsz_sm():
+# stick, zeppelin; directional
+def _sz():
+    stick = cylinder_models.C1Stick()
+    zeppelin = gaussian_models.G2Zeppelin()
+    bundle = BundleModel([stick, zeppelin])
+    bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp',
+        'C1Stick_1_lambda_par','partial_volume_0')
+    bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
+    bundle.set_equal_parameter('G2Zeppelin_1_mu', 'C1Stick_1_mu')
+    
+    sz = modeling_framework.MultiCompartmentModel(models=[bundle])
+    
+    return sz
+
+
+# stick, zeppelin; spherical mean
+def _sz_sm():
+    stick = cylinder_models.C1Stick()
+    zeppelin = gaussian_models.G2Zeppelin()
+    bundle = BundleModel([stick, zeppelin])
+    bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp',
+        'C1Stick_1_lambda_par','partial_volume_0')
+    bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
+    bundle.set_equal_parameter('G2Zeppelin_1_mu', 'C1Stick_1_mu')
+    
+    sz_sm = modeling_framework.MultiCompartmentSphericalMeanModel(models=[bundle])    
+
+    return sz_sm
+
+
+# ball, stick, zeppelin; directional
+def _bsz():
     ball = gaussian_models.G1Ball()
     stick = cylinder_models.C1Stick()
     zeppelin = gaussian_models.G2Zeppelin()
     bsz = MultiCompartmentModel(models=[stick, ball, zeppelin])
+
+    return bsz
+
+
+# ball, stick, zeppelin; spherical mean
+def _bsz_sm():
+    ball = gaussian_models.G1Ball()
+    stick = cylinder_models.C1Stick()
+    zeppelin = gaussian_models.G2Zeppelin()
 
     # spherical mean model with constraints
     bsz_sm = MultiCompartmentSphericalMeanModel(models=[stick, ball, zeppelin])
     bsz_sm.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
     bsz_sm.set_fixed_parameter('G1Ball_1_lambda_iso', 3e-9)
 
-    return bsz
+    return bsz_sm
 
 
 # smt-noddi
@@ -89,6 +128,12 @@ def _setup_model(model_to_fit):
         model = _noddi()
     elif model_to_fit == 'smt':
         model = _smt()
+    elif model_to_fit == 'sz':
+        model = _bsz()
+    elif model_to_fit == 'sz_sm':
+        model = _bsz_sm()
+    elif model_to_fit == 'bsz':
+        model = _bsz()
     elif model_to_fit == 'bsz_sm':
         model = _bsz_sm()
     elif model_to_fit == 'smt_noddi':
