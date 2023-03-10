@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Dec 2 09:09:09 2022
+
+@author: epowell
+"""
 import numpy as np
 import math
 import shelve
@@ -35,6 +42,7 @@ def _smt_noddi(smt_noddi_model, acq_scheme):
 
 
     # roi_mask = np.concatenate((np.ones((n_wm,)),2*np.ones((n_gm,)),3*np.ones((n_csf,))))
+    # TODO: change to normal dist
     roi_mask = np.concatenate((np.ones((n_wm,)),2*np.ones((n_gm,)),np.zeros((n_csf,))))
 
     stick_par = np.concatenate((np.random.uniform(low=stick_par_wm[0],high=stick_par_wm[1], size = n_wm),

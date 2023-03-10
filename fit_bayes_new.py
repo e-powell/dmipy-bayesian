@@ -55,7 +55,6 @@ def tform_params(param_dict, parameter_names, model, direction):
                 # parameters shouldn't ever reach bounds (i.e. from sampling in Metropolis Hastings step)
                 lb = (model.parameter_ranges[param][0] - 1e-5) * model.parameter_scales[param]  # lower bound
                 ub = (model.parameter_ranges[param][1] + 1e-5) * model.parameter_scales[param]  # upper bound
-                # lb = (model.parameter_ranges[param][0] - np.finfo(np.float32).eps) * model.parameter_scales[param]  # lower bound
                 # ub = (model.parameter_ranges[param][1] + np.finfo(np.float32).eps) * model.parameter_scales[param]  # upper bound
                 param_dict[param] = (lb + ub * np.exp(param_dict[param])) / (1 + np.exp(param_dict[param]))
                 param_dict[param] = [ub if np.isnan(x) else x for x in param_dict[param]]
@@ -70,6 +69,18 @@ def tform_params(param_dict, parameter_names, model, direction):
 def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps=1000, burn_in=500, nupdate=20):
     # FIXME: data checks?
     print(' >> at start of fit_bayes.fit', flush=True)  # ecap
+
+    # ensure voxel data is in 1D array
+    if data.ndim > 2:                                                           # need array size [nvox x ndw]
+        data = data.reshape(-1, data.shape[-1])
+    if E_fit.ndim > 2:                                                          # need array size [nvox x ndw]
+        E_fit = E_fit.reshape(-1, E_fit.shape[-1])       
+    if mask is not None and mask.ndim > 1:                                      # need array size [nvox x 1]
+        mask = mask.flatten()
+    for key in parameter_vector_init.keys():                                    # need array size [nvox x 1]
+        if parameter_vector_init[key].ndim > 1:
+            parameter_vector_init[key] = parameter_vector_init[key].flatten()
+        
 
     # set mask default
     if mask is None:
@@ -175,7 +186,7 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
             w[param] = np.tile(w[param], nvox)  # tile to create weight for each voxel
         elif model.parameter_cardinality[param] == 1 and param == 'partial_volume_0':
             w[param] = 0.001 * np.abs(np.subtract(w[param][1], w[param][0]))
-            # w[param] = 0.03 * np.abs(np.subtract(w[param][1], w[param][0]))
+            # w[param] = 0.01 * np.abs(np.subtract(w[param][1], w[param][0]))
             # w[param] = 0.05 * np.abs(np.subtract(w[param][1], w[param][0]))
             # w[param] = 0.1 * np.abs(np.subtract(w[param][1], w[param][0]))
             w[param] = np.tile(w[param], nvox)  # tile to create weight for each voxel
@@ -220,11 +231,12 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
         nvox_roi = idx_roi.__len__()  # no. voxels in ROI
         # initialise sigma for this ROI
         sigma = np.cov(np.transpose(model_reduced.parameters_to_parameter_vector(**params_all_tform)[idx_roi]))
-        print("ROI " + str(roi+1) + "/" + str(nroi) + "; " + str(nvox_roi) + " voxels")
+        print('ROI ' + str(roi+1) + '/' + str(nroi) + '; ' + str(nvox_roi) + ' voxels')
 
         # NB i (voxel loop) and j (MC loop) in keeping with Orton paper
         for j in range(0, nsteps):
-            print('mcmc step = ' + str(j) + '/' + str(nsteps), flush=True)
+            if np.mod(j,nsteps/10) == 0:
+                print('ROI ' + str(roi+1) + '/' + str(nroi) + '; ' + 'mcmc step = ' + str(j) + '/' + str(nsteps), flush=True)
             # Gibbs moves to update priors.
             # Gibbs 1. sample mu from multivariate normal dist defined by current param estimates.
             parameter_vector = model_reduced.parameters_to_parameter_vector(**params_all_tform)[idx_roi, :]
@@ -235,6 +247,13 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
             # Gibbs 2. sample sigma from inverse Wishart distribution (using newly updated mu)
             phi = np.sum([np.outer(parameter_vector[i, :] - mu, parameter_vector[i, :] - mu)
                           for i in range(0, nvox_roi)], axis=0)
+            # TODO: fix for parameter cardinality > 1
+            if j == 0:
+                for p in range(parameters_to_fit.__len__()):
+                    tol = mu[p] * np.mean(w[parameters_to_fit[p]]) * 0.001
+                    if np.abs(phi[p, p]) < np.abs(tol):
+                        phi[p, p] = tol
+            
             # sigma = scipy.stats.invwishart(scale=phi, df=nvox_roi - nparams - 1).rvs()
             sigma = scipy.stats.invwishart(scale=phi, df=nvox_roi - nparams_red - 1).rvs()
 
@@ -246,7 +265,7 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
             params_all_new = deepcopy(params_all_tform)
             # UPDATE: all parameters updated at the same time
             for p in parameters_to_fit:
-                print('param = ' + p)
+                # print('param = ' + p)
                 # sample parameter
                 if model.parameter_cardinality[p] > 1:
                     for card in range(model.parameter_cardinality[p]):
@@ -263,7 +282,8 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
                     f_indep = np.exp(f_indep) / (1 + np.exp(f_indep))  # tform indept fractions (log -> orig)
                     for c in range(ncomp - 1):  # check transform
                         f_indep[c, :] = [1 if np.isnan(x) else x for x in f_indep[c, :]]
-                    prior_new = 1 * (np.sum(f_indep, axis=0) < 1)  # boolean prior to control total vol frac
+                    # prior_new = 1 * (np.sum(f_indep, axis=0) < 1)  # boolean prior to control total vol frac
+                    prior_new = np.log(1 * (np.sum(f_indep, axis=0) < 1))  # boolean prior to control total vol frac; 'logged' 10/02/23
                     f_dept = np.array([np.max([0, 1 - np.sum(f_indep[:, f], axis=0)])
                                        for f in range(nvox_roi)])  # compute dept fraction
                     f_dept = np.log(f_dept) - np.log(1 - f_dept)  # tform dept fraction (orig -> log)
@@ -277,7 +297,8 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
 
             parameter_vector = tform_params(params_all_new, model.parameter_names, model, 'r')
             parameter_vector = model.parameters_to_parameter_vector(**parameter_vector)  # [i, :]
-            g_new = model.simulate_signal(acq_scheme, parameter_vector[idx_roi, :])  # model-predicted signal (new params)
+            with suppress_stdout():
+                g_new = model.simulate_signal(acq_scheme, parameter_vector[idx_roi, :])  # model-predicted signal (new params)
 
             # calculate posteriors and PDFs (log scale)
             inner_y_y = np.sum(np.multiply(np.squeeze(y), np.squeeze(y)), 1)
@@ -311,7 +332,7 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
                 accepted_per_n[to_accept[:, 1]] += 1
                 likelihood_stored[to_accept[:, 1], j] = likelihood_new[to_accept[:, 0]] + prior_new[to_accept[:, 0]]
             if to_reject.shape != (0,):  # account for error thrown by all moves accepted
-                likelihood_stored[to_reject[:, 1], j] = likelihood[to_reject[:, 0]] + prior[to_reject[:, 0]]
+                likelihood_stored[to_reject[:, 1], j] = likelihood[to_reject[:, 0]]  # + prior[to_reject[:, 0]]
 
             for p in parameters_to_fit:
                 if model.parameter_cardinality[p] > 1:

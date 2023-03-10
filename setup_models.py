@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Dec 2 09:09:09 2022
+
+@author: epowell
+"""
 # load HCP acqusition scheme
 from dmipy.data import saved_acquisition_schemes
 
