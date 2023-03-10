@@ -201,12 +201,18 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
     acceptance_rate = np.squeeze(np.zeros((nvox, nsteps), dtype=np.float32))    # accepted moves at each step
 
     param_conv = dict.fromkeys(parameters_to_fit)                               # parameter convergence
-    gibbs_mu = np.zeros((nroi, nparams_red, nsteps))                            # gibbs mu at each step
-    gibbs_sigma = np.zeros((nroi, nparams_red, nparams_red, nsteps))            # gibbs sigma at each step
+    gibbs_mu = np.zeros((nroi, nparams_red, nsteps))                            # gibbs mu at each step (transformed space)
+    gibbs_sigma = np.zeros((nroi, nparams_red, nparams_red, nsteps))            # gibbs sigma at each step (transformed space)
     # likelihood_stored = dict.fromkeys(parameters_to_fit)                      # likelihood at each step
     likelihood_stored = np.squeeze(np.zeros((nvox, nsteps), dtype=np.float32))  # likelihood at each step
     w_stored = dict.fromkeys(parameters_to_fit)                                 # weights at each weight update
 
+    #-------------------------------------------------------------------------#
+    #                                TESTING                                  #
+    gibbs_mu_norm = np.zeros((nroi, nparams_red, nsteps))                       # gibbs mu at each step (normal space)
+    gibbs_sigma_norm = np.zeros((nroi, nparams_red, nparams_red, nsteps))       # gibbs sigma at each step (normal space)
+    #-------------------------------------------------------------------------#
+    
     # initialise dictionaries (param_conv, accepted, accepted_per_n, acceptance_rate)
     print(' >> initialising dictionaries', flush=True)  # ecap
     for param in parameters_to_fit:
@@ -231,6 +237,13 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
         nvox_roi = idx_roi.__len__()  # no. voxels in ROI
         # initialise sigma for this ROI
         sigma = np.cov(np.transpose(model_reduced.parameters_to_parameter_vector(**params_all_tform)[idx_roi]))
+        
+        #---------------------------------------------------------------------#
+        #                              TESTING                                #
+        params_all_norm = tform_params(params_all_tform, model.parameter_names, model, 'r')
+        sigma_norm = np.cov(np.transpose(model_reduced.parameters_to_parameter_vector(**params_all_norm)[idx_roi]))
+        #---------------------------------------------------------------------#
+        
         print('ROI ' + str(roi+1) + '/' + str(nroi) + '; ' + str(nvox_roi) + ' voxels')
 
         # NB i (voxel loop) and j (MC loop) in keeping with Orton paper
@@ -260,6 +273,25 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
             # save Gibbs parameters for this step (careful of parameter ordering)
             gibbs_mu[roi, :, j] = copy(mu)
             gibbs_sigma[roi, :, :, j] = copy(sigma)
+            
+            #-----------------------------------------------------------------#
+            #                            TESTING                              #
+            params_all_norm = tform_params(params_all_tform, model.parameter_names, model, 'r')
+            parameter_vector_norm = model_reduced.parameters_to_parameter_vector(**params_all_norm)[idx_roi, :]
+            m_norm = np.mean(parameter_vector_norm, axis=0)
+            V_norm = sigma_norm / nvox_roi
+            mu_norm = np.random.multivariate_normal(m_norm, V_norm)
+            # Gibbs 2. sample sigma from inverse Wishart distribution (using newly updated mu)
+            phi_norm = np.sum([np.outer(parameter_vector_norm[i, :] - mu_norm, parameter_vector_norm[i, :] - mu_norm)
+                          for i in range(0, nvox_roi)], axis=0)
+            sigma_norm = scipy.stats.invwishart(df=nvox_roi - nparams_red - 1, scale=phi_norm).rvs()
+
+            # save Gibbs parameters for this step (careful of parameter ordering)
+            gibbs_mu_norm[roi, :, j] = copy(mu_norm)
+            gibbs_sigma_norm[roi, :, :, j] = copy(sigma_norm)
+            if np.mod(j,nsteps/10) == 0:
+                print([m_norm, sigma_norm])
+            #-----------------------------------------------------------------#
 
             # Metropolis-Hastings parameter updates
             params_all_new = deepcopy(params_all_tform)
@@ -408,4 +440,4 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
     # parameter_vector_bayes = params_all
     # parameter_vector_init = params_all_orig
 
-    return params_all, acceptance_rate, param_conv, likelihood_stored, w_stored, gibbs_mu, gibbs_sigma
+    return params_all, acceptance_rate, param_conv, likelihood_stored, w_stored, gibbs_mu, gibbs_sigma, gibbs_mu_norm, gibbs_sigma_norm
