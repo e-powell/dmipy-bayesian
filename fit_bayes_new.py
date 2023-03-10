@@ -255,7 +255,7 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
                         phi[p, p] = tol
             
             # sigma = scipy.stats.invwishart(scale=phi, df=nvox_roi - nparams - 1).rvs()
-            sigma = scipy.stats.invwishart(scale=phi, df=nvox_roi - nparams_red - 1).rvs()
+            sigma = scipy.stats.invwishart(df=nvox_roi - nparams_red - 1, scale=phi).rvs()
 
             # save Gibbs parameters for this step (careful of parameter ordering)
             gibbs_mu[roi, :, j] = copy(mu)

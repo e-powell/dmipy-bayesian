@@ -228,7 +228,7 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
                         phi[p, p] = tol
             
             # sigma = scipy.stats.invwishart(scale=phi, df=nvox_roi - nparams - 1).rvs()
-            sigma = scipy.stats.invwishart(scale=phi, df=nvox_roi - nparams_red - 1).rvs()
+            sigma = scipy.stats.invwishart(df=nvox_roi - nparams_red - 1, scale=phi).rvs()
 
             # save Gibbs parameters for this step (careful of parameter ordering)
             gibbs_mu[roi, :, j] = copy(mu)
@@ -404,6 +404,7 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
             # mask_new[np.where(sample[:,roi])] = roi + 1
             mask_new[sample[:,roi]>.5] = roi + 1
 
+        '''
         fig, ax = plt.subplots(figsize=(13, 3), ncols=2)
         pos = ax[0].imshow(np.reshape(prior_for_rois[:,0],(nx,ny)), vmin=.25, vmax=.75); ax[0].set_title('p(roi1)'); fig.colorbar(pos, ax=ax[0])
         pos = ax[1].imshow(np.reshape(prior_for_rois[:,1],(nx,ny)), vmin=.25, vmax=.75); ax[1].set_title('p(roi2)'); fig.colorbar(pos, ax=ax[1])
@@ -411,6 +412,7 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
         plt.show()
         
         plt.imshow(np.reshape(mask_new,[nx,ny]))
+        '''
         # ---------------------------------------------------------------------
 
     # params_all = tform_params(params_all_new, model.parameter_names, model, 'r')
@@ -425,4 +427,4 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
     # parameter_vector_bayes = params_all
     # parameter_vector_init = params_all_orig
 
-    return params_all, acceptance_rate, param_conv, likelihood_stored, w_stored
+    return params_all, acceptance_rate, param_conv, likelihood_stored, w_stored, gibbs_mu, gibbs_sigma
