@@ -198,7 +198,7 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
         
         # loop over ROIs
         # for roi in range(nroi):
-        print(' >> starting loop', flush=True)  # ecap
+        # print(' >> starting loop', flush=True)  # ecap
         for roi in range(nroi):  # FIXME: range(nroi) gives e.g. 0,1 when just 1 ROI. Better to use nroi.length?
             idx_roi = [xx for xx, x in enumerate(mask == roi_vals[roi]) if x]  # indices into mask of voxels in ROI
             nvox_roi = idx_roi.__len__()  # no. voxels in ROI
@@ -348,9 +348,9 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
         
         # ---------------------------------------------------------------------
         # end of roi loop: update roi probabilities
-        prior_for_rois = np.zeros(parameter_vector.shape)  ## [nvox, nparams]
+        prior_for_rois = np.zeros([nvox,nroi])  ## [nvox, nparams]
         for roi in range(nroi):  # FIXME: range(nroi) gives e.g. 0,1 when just 1 ROI. Better to use nroi.length?
-            idx_roi = [xx for xx, x in enumerate(mask == roi_vals[roi]) if x]  # indices into mask of voxels in ROI
+            idx_roi = [xx for xx, x in enumerate(mask == roi_vals[roi]) if x]   # indices into mask of voxels in ROI
             nvox_roi = idx_roi.__len__()  # no. voxels in ROI
             parameter_vector = model_reduced.parameters_to_parameter_vector(**params_all_tform)[idx_roi, :]
             params_all_new = deepcopy(params_all_tform)
