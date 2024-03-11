@@ -65,6 +65,88 @@ def tform_params(param_dict, parameter_names, model, direction):
     return param_dict
 
 
+def gibbs(parameter_vector_all, idx_roi, sigma):
+    """Gibbs moves to update priors.
+
+    Parameters
+    ----------
+    parameter_vector_all : array, (nvox, nparams)
+        array of transformed parameter values, all voxels in all ROIs
+    idx_roi : array, (nvox_roi,)
+        indices (into parameter_vector_all) of voxels in current ROI
+    sigma : array, (nparams, nparams)
+        current estimate of parameter covariances in current ROI
+        
+    Returns
+    -------
+    mu : array, (nparams,)
+        updated estimate of parameter means in current ROI
+    sigma : array, (nparams, nparams)
+        updated estimate of parameter covariances in current ROI
+    """
+    
+    nvox_roi = idx_roi.__len__()  # no. voxels in ROI
+    parameter_vector = parameter_vector_all[idx_roi,:]
+    
+    # Gibbs 1. sample mu from multivariate normal dist defined by current param estimates.
+    m = np.mean(parameter_vector, axis=0)
+    V = sigma / nvox_roi
+    mu = np.random.multivariate_normal(m, V)
+
+    # Gibbs 2. sample sigma from inverse Wishart distribution (using newly updated mu)
+    phi = np.sum([np.outer(parameter_vector[i, :] - mu, parameter_vector[i, :] - mu)
+                  for i in range(0, nvox_roi)], axis=0)
+
+    # TODO: fix for parameter cardinality > 1
+    '''
+    if j == 0:
+        for p in range(parameters_to_fit.__len__()):
+            tol = mu[p] * np.mean(w[parameters_to_fit[p]]) * 0.001
+            if np.abs(phi[p, p]) < np.abs(tol):
+                phi[p, p] = tol
+    '''
+    
+    sigma = scipy.stats.invwishart(df=nvox_roi - nparams_red - 1, scale=phi).rvs()
+    
+    return mu, sigma
+
+
+def calc_prior_and_likelihood(parameter_vector_all, idx_roi, mu, sigma, y, g):
+    """Calculates priors given a set of parameter estimates.
+    
+    Parameters
+    ----------
+    parameter_vector_all : array, (nvox, nparams)
+        array of transformed parameter values, all voxels in all ROIs
+    idx_roi : array, (nvox_roi,)
+        indices (into parameter_vector_all) of voxels in current ROI
+    mu : array, (nparams,)
+        current estimate of parameter means in current ROI
+    sigma : array, (nparams, nparams)
+        current estimate of parameter covariances in current ROI
+    y : array, (nvox, nmeas)
+        measured signal
+    g : array, (nvox, nmeas)
+        model-predicted signal
+    
+    Returns
+    -------
+    prior : array, (nvox_idx,)
+        prior for current ROI
+    likelihood : array, (nvox_idx,)
+        likelihood for current ROI
+    """
+     
+    prior = np.log(scipy.stats.multivariate_normal.pdf(parameter_vector_all[idx_roi, :], mu, sigma, allow_singular=1))
+     
+    inner_y_y = np.sum(np.multiply(np.squeeze(y[idx_roi, :]), np.squeeze(y[idx_roi, :])), 1)
+    inner_y_g = np.sum(np.multiply(np.squeeze(y[idx_roi, :]), np.squeeze(g[idx_roi, :])), 1)
+    inner_g_g = np.sum(np.multiply(np.squeeze(g[idx_roi, :]), np.squeeze(g[idx_roi, :])), 1)
+    likelihood = (-ndw / 2) * np.log(inner_y_y - (inner_y_g ** 2 / inner_g_g))
+     
+    return prior, likelihood
+
+
 # FIXME: create as class like modelling_framework.py?
 def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps=1000, burn_in=500, nupdate=20):
     # FIXME: data checks?
@@ -208,39 +290,74 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
                 sigma = np.cov(np.transpose(model_reduced.parameters_to_parameter_vector(**params_all_tform)[idx_roi]))
             # print('ROI ' + str(roi+1) + '/' + str(nroi) + '; ' + str(nvox_roi) + ' voxels')
 
-        # # NB i (voxel loop) and j (MC loop) in keeping with Orton paper
+        # NB i (voxel loop) and j (MC loop) in keeping with Orton paper
         # for j in range(0, nsteps):
             if np.mod(j,nsteps/10) == 0:
                 print('ROI ' + str(roi+1) + '/' + str(nroi) + '; ' + 'mcmc step = ' + str(j) + '/' + str(nsteps), flush=True)
-            # Gibbs moves to update priors.
-            # Gibbs 1. sample mu from multivariate normal dist defined by current param estimates.
-            parameter_vector = model_reduced.parameters_to_parameter_vector(**params_all_tform)[idx_roi, :]
-            m = np.mean(parameter_vector, axis=0)
-            V = sigma / nvox_roi
-            # print([m, V, sigma, nvox_roi])
-            mu = np.random.multivariate_normal(m, V)
-            # Gibbs 2. sample sigma from inverse Wishart distribution (using newly updated mu)
-            phi = np.sum([np.outer(parameter_vector[i, :] - mu, parameter_vector[i, :] - mu)
-                          for i in range(0, nvox_roi)], axis=0)
-            # TODO: fix for parameter cardinality > 1
-            if j == 0:
-                for p in range(parameters_to_fit.__len__()):
-                    tol = mu[p] * np.mean(w[parameters_to_fit[p]]) * 0.001
-                    if np.abs(phi[p, p]) < np.abs(tol):
-                        phi[p, p] = tol
-            
-            # sigma = scipy.stats.invwishart(scale=phi, df=nvox_roi - nparams - 1).rvs()
-            sigma = scipy.stats.invwishart(df=nvox_roi - nparams_red - 1, scale=phi).rvs()
 
+            parameter_vector_all = model_reduced.parameters_to_parameter_vector(**params_all_tform)
+            
             # save Gibbs parameters for this step (careful of parameter ordering)
+            mu, sigma = gibbs(parameter_vector_all, idx_roi, sigma)  # Gibbs move
             gibbs_mu[roi, :, j] = copy(mu)
             gibbs_sigma[roi, :, :, j] = copy(sigma)
+            
+            # ROI update
+            # TODO: prop_idx_roi 
+            # 1. pick random parameter (index)
+            p = random.randint(0, parameters_to_fit.__len__()-1)
+            # 2. get random parameter values that divide parameter range into nroi clusters (s_r) 
+            roi_sep = np.random.uniform(model.parameter_ranges[parameters_to_fit[p]][0], model.parameter_ranges[parameters_to_fit[p]][1], nroi-1)
+            roi_sep = np.concatenate((np.array([model.parameter_ranges[parameters_to_fit[p]][0]]), roi_sep, np.array([model.parameter_ranges[parameters_to_fit[p]][1]])))
+            # 3. get new prop_idx_rois (roi order always = 1,2,3...)
+            mask_prop = np.zeros(mask.shape)
+            for r in range(nroi):
+                prop_idx_roi = [i for i in range(nvox) if (parameter_vector_all[i,p] > roi_sep[r] and parameter_vector_all[i,p] < roi_sep[r+1]) ] 
+                mask_prop[prop_idx_roi] = r+1
+            prop_idx_roi = [i for i in range(nvox) if (parameter_vector_all[i,p] > roi_sep[roi] and parameter_vector_all[i,p] < roi_sep[roi+1]) ] 
+            # 3.1. TODO: sample random value, if < 0.5, use random prop_roi_idx values. NB. alpha calc also changes (see A4 paper scribbles)
+            r = np.random.uniform(0, 1, 1)
+            if r < 0.5:
+                # use prop_roi_idx
+            else:
+                # generate random idx values
+                # for i in range(0,nvox):
+                    # mask_new[i,j] = np.random.choice([roi+1 for roi in range(nroi)], size=1, replace=False, p=1/nroi)
+                    
+            # 4. calculate signals: measured, current model-predicted, new model-predicted
+            y = copy(data)  #[idx_roi, :])   # actual measured signal
+            g = copy(E_fit) #[idx_roi, :])   # model-predicted signal (old params)
+            # 5. calculate prior & likelihood for proposed ROIs
+            #    parameter_vector = model_reduced.parameters_to_parameter_vector(**params_all_tform)
+            #    prop_prior, prop_likelihood = calc_prior_and_likelihood(parameter_vector_all, prop_idx_roi, prop_mu, prop_sigma, y, g)
+            prop_mu, prop_sigma = gibbs(parameter_vector_all, prop_idx_roi, sigma)  # Gibbs move
+            prop_prior, prop_likelihood = calc_prior_and_likelihood(parameter_vector_all, prop_idx_roi, prop_mu, prop_sigma, y, g)
+            # 5. calculate prior & likelihood for existing ROIs
+            #    calculate signals: measured, current model-predicted, new model-predicted
+            #    y = copy(data)  #[idx_roi, :])   # actual measured signal
+            #    g = copy(E_fit) #[idx_roi, :])  # model-predicted signal (old params)
+            parameter_vector = model_reduced.parameters_to_parameter_vector(**params_all_tform)
+            prior, likelihood = calc_prior_and_likelihood(parameter_vector_all, idx_roi, mu, sigma, y, g)
+            # 6. acceptance of new rois
+            #    alpha = [np.min([0, np.sum((prop_likelihood[i] + prop_prior[i])) - np.sum((likelihood[i] + prior[i]))]) for i in range(nvox_roi)]
+            # TO DO: add proposal density to posteriors (see A4 paper scribbles)
+            prop_posterior = np.sum([prop_likelihood[i] + prop_prior[i] for i in range(prop_idx_roi.__len__())])
+            prop_posterior = prop_posterior - 
+            posterior = np.sum([likelihood[i] + prior[i] for i in range(idx_roi.__len__())])
+            alpha = np.min((0, prop_posterior - posterior))
+            r = np.random.uniform(0, 1, 1)
+            # 8. accept if r < alpha
+            if r < alpha:
+                idx_roi = prop_idx_roi
+            
+            # prop_mu, prop_sigma = gibbs(parameter_vector_all, prop_idx_roi, sigma)  # Gibbs move
+            # prop_mu, prop_sigma = newfnc(prop_mask, mu, sigma, y, parameter_vector, idx_roi) # roi update
             
             # Metropolis-Hastings parameter updates
             params_all_new = deepcopy(params_all_tform)
             # UPDATE: all parameters updated at the same time
             for p in parameters_to_fit:
-                # print('param = ' + p)
+                # print('param = ' + p)e
                 # sample parameter
                 if model.parameter_cardinality[p] > 1:
                     for card in range(model.parameter_cardinality[p]):
@@ -258,40 +375,35 @@ def fit(model, acq_scheme, data, E_fit, parameter_vector_init, mask=None, nsteps
                     for c in range(ncomp - 1):  # check transform
                         f_indep[c, :] = [1 if np.isnan(x) else x for x in f_indep[c, :]]
                     # prior_new = 1 * (np.sum(f_indep, axis=0) < 1)  # boolean prior to control total vol frac
-                    prior_new = np.log(1 * (np.sum(f_indep, axis=0) < 1))  # boolean prior to control total vol frac; 'logged' 10/02/23
+                    prior_new_bool = np.log(1 * (np.sum(f_indep, axis=0) < 1))  # boolean prior to control total vol frac; 'logged' 10/02/23
                     f_dept = np.array([np.max([0, 1 - np.sum(f_indep[:, f], axis=0)])
                                        for f in range(nvox_roi)])  # compute dept fraction
                     f_dept = np.log(f_dept) - np.log(1 - f_dept)  # tform dept fraction (orig -> log)
                     params_all_new[dependent_fraction][idx_roi] = f_dept
                 else:
-                    prior_new = np.log(np.ones(nvox_roi))  # dummy prior otherwise
-
-            # compute acceptance
-            y = copy(data[idx_roi, :])   # actual measured signal
-            g = copy(E_fit[idx_roi, :])  # model-predicted signal (old params)
+                    prior_new_bool = np.log(np.ones(nvox_roi))  # dummy prior otherwise
 
             parameter_vector = tform_params(params_all_new, model.parameter_names, model, 'r')
             parameter_vector = model.parameters_to_parameter_vector(**parameter_vector)  # [i, :]
+            
+            # calculate signals: measured, current model-predicted, new model-predicted
+            y = copy(data)  #[idx_roi, :])   # actual measured signal
+            g = copy(E_fit) #[idx_roi, :])  # model-predicted signal (old params)
             with suppress_stdout():
-                g_new = model.simulate_signal(acq_scheme, parameter_vector[idx_roi, :])  # model-predicted signal (new params)
-
-            # calculate posteriors and PDFs (log scale)
-            inner_y_y = np.sum(np.multiply(np.squeeze(y), np.squeeze(y)), 1)
-            inner_y_g = np.sum(np.multiply(np.squeeze(y), np.squeeze(g)), 1)
-            inner_g_g = np.sum(np.multiply(np.squeeze(g), np.squeeze(g)), 1)
-            inner_y_gnew = np.sum(np.multiply(np.squeeze(y), np.squeeze(g_new)), 1)
-            inner_gnew_gnew = np.sum(np.multiply(np.squeeze(g_new), np.squeeze(g_new)), 1)
-            likelihood = (-ndw / 2) * np.log(inner_y_y - (inner_y_g ** 2 / inner_g_g))
-            likelihood_new = (-ndw / 2) * np.log(inner_y_y - (inner_y_gnew ** 2 / inner_gnew_gnew))
-
-            parameter_vector = model_reduced.parameters_to_parameter_vector(**params_all_tform)[idx_roi, :]
-            prior = np.log(scipy.stats.multivariate_normal.pdf(parameter_vector, mu, sigma, allow_singular=1))
-            parameter_vector = model_reduced.parameters_to_parameter_vector(**params_all_new)[idx_roi, :]  # [i, :]
-            prior_new = prior_new + np.log(scipy.stats.multivariate_normal.pdf(parameter_vector, mu, sigma, allow_singular=1))
-
-            # TODO: investigate big discrepancy between r and alpha
+                g_new = model.simulate_signal(acq_scheme, parameter_vector) #[idx_roi, :])  # model-predicted signal (new params)
+            
+            # calculate current prior & likelihood
+            parameter_vector = model_reduced.parameters_to_parameter_vector(**params_all_tform)
+            prior, likelihood = calc_prior_and_likelihood(parameter_vector_all, idx_roi, mu, sigma, y, g)
+            
+            # calculate new prior & likelihood
+            parameter_vector = model_reduced.parameters_to_parameter_vector(**params_all_new)
+            prior_new, likelihood_new = calc_prior_and_likelihood(parameter_vector_all, idx_roi, mu, sigma, y, g_new)
+            prior_new = prior_new + prior_new_bool
+            
+            # calculate acceptance
             alpha = [np.min([0, (likelihood_new[i] + prior_new[i]) - (likelihood[i] + prior[i])]) for i in
-                     range(nvox_roi)]
+                     range(nvox_roi)]            
             r = np.log(np.random.uniform(0, 1, nvox_roi))
 
             # accept new parameter value if criteria met (col 1 -> roi voxel indices, col 2 -> fov voxel indices)

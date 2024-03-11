@@ -204,6 +204,8 @@ f.close()
 plt.plot(E_fit_sm[100,100,70,:])
 
 # %% hierarchical Bayesian fitting
+fit_bayes_roi_update_new = reload(fit_bayes_roi_update_new)
+
 nsteps = 2000
 burn_in = 1000
 nupdates = 20
@@ -227,7 +229,7 @@ nupdate=nupdates
 parameters_dict_bayes, acceptance_rate, parameter_convergence, likelihood, weights \
     = fit_bayes_roi_update.fit(model=sz_sm, acq_scheme=acq_scheme, data=data_sm[:,:,slice,:],\
                                E_fit=E_fit_sm[:,:,slice,:], parameter_vector_init=parameter_dict,\
-                               mask=roi_mask[:,:,slice], nsteps=nsteps, burn_in=burn_in, nupdates=nupdates)
+                               mask=roi_mask[:,:,slice], nsteps=nsteps, burn_in=burn_in, nupdate=nupdate)
 
 compute_time(proc_start, time.time())
 

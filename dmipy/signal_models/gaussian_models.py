@@ -6,8 +6,7 @@ from __future__ import division
 
 import numpy as np
 from scipy.special import erf
-
-import scipy.stats
+from scipy.stats import norm  # ecap
 
 from ..utils import utils
 from ..core.modeling_framework import ModelProperties
@@ -23,6 +22,7 @@ A_SCALING = 1e-12
 __all__ = [
     'G1Ball',
     'G1BallNormalDist',
+    'G2BallNormalDist',
     'G2Zeppelin',
     'G3TemporalZeppelin'
 ]
@@ -81,6 +81,7 @@ class G1Ball(ModelProperties, IsotropicSignalModelProperties):
         return E_ball
 
 
+# paddy start
 class G1BallNormalDist(ModelProperties, IsotropicSignalModelProperties):
     r""" Like the Ball model [1]_ - an isotropic Tensor with one diffusivity,
     but with a normal distribution of diffusivities (rather than a single value)
@@ -154,31 +155,152 @@ class G1BallNormalDist(ModelProperties, IsotropicSignalModelProperties):
         define the grid (on which to estimate the distribution) based on
         the minimum and maximum lambda_iso values
         '''
-        lambda_iso_grid = np.linspace(.1 * DIFFUSIVITY_SCALING, 3 * DIFFUSIVITY_SCALING, 1000)
-
-        r'''
-        make the signal dictionary (slow, and definitely don't need to do this
-        in every voxel! Should try and replace with a global variable)
-        '''
-        A = np.zeros((len(bvals), len(lambda_iso_grid)))
-        for i in range(0,len(lambda_iso_grid)):
-            #parameter_vector = ball_model.parameters_to_parameter_vector(G1Ball_1_lambda_iso = R2grid[i])
-            #A[:,i] = ball_model.simulate_signal(acq_scheme, parameter_vector)
-            A[:,i] = np.exp(-bvals * lambda_iso_grid[i])
+        # lambda_iso_grid = np.linspace(.1 * DIFFUSIVITY_SCALING, 3 * DIFFUSIVITY_SCALING, 1000)
+        lambda_iso_grid = np.linspace(self.parameter_ranges['lambda_iso_mean'][0],
+                                      self.parameter_ranges['lambda_iso_mean'][1], 1000)  # * self.parameter_scales['lambda_iso_mean']
 
         r'''
         make the distribution and normalise it
         '''
-        normaldist = scipy.stats.norm.pdf(lambda_iso_grid,lambda_iso_mean,lambda_iso_std)
-        normaldist = normaldist/np.sum(normaldist)
+        normaldist = norm.pdf(lambda_iso_grid, lambda_iso_mean, lambda_iso_std)
+        # normaldist = (1/(lambda_iso_std*np.sqrt(2*np.pi))) * np.exp(-.5*((lambda_iso_grid-lambda_iso_mean)/lambda_iso_std)**2)
+        normaldist = normaldist / np.sum(normaldist)
+        # ecap help: hard code norm pdf
 
         r'''calculate the signal'''
-        E_ball = np.matmul(A,normaldist)
+        E_ball = np.matmul(self.signal_dictionary, normaldist)
 
         return E_ball
 
 
+# paddy stop
 
+
+# ecap start
+class G2BallNormalDist(ModelProperties, IsotropicSignalModelProperties):
+    r""" Like the G1BallNormalDist model [1]_ - an isotropic Tensor with one diffusivity,
+    but with a normal distribution of diffusivities (rather than a single value)
+    parameterised by mean mu and standard deviation sigma. I.e. the diffusion
+    equivalent of [2] - but with 2 compartments
+
+    also: diffusivity == T2
+          b-value     == TE
+
+    Parameters
+    ----------
+    lambda_iso_mean : float, [2x1]
+        mean of the isotropic diffusivity in m^2/s, of compartments 1 & 2
+
+    lambda_iso_std : float, [2x1]
+        standard deviation of the isotropic diffusivity in m^2/s, of compartments 1 & 2
+
+    dist_height : float,
+        relative height of the distribution (compartment 1)
+
+    References
+    ----------
+    .. [1] Behrens et al.
+           "Characterization and propagation of uncertainty in
+            diffusion-weighted MR imaging"
+           Magnetic Resonance in Medicine (2003)
+    .. [2] Devine et al.
+           "Simplified Luminal Water Imaging for the
+           Detection of Prostate Cancer From Multiecho
+           T2 MR Images,
+           Journal of Magnetic Resonance Imaging (2018)
+    """
+
+    _required_acquisition_parameters = ['bvalues']
+
+    _parameter_ranges = {
+        'lambda_iso_mean_0': (.1, 3),
+        'lambda_iso_mean_1': (.1, 3),
+        'lambda_iso_std_0': (.01, 0.5),
+        'lambda_iso_std_1': (.01, 0.5),
+        'dist_height': (0, 1)
+    }
+    _parameter_scales = {
+        'lambda_iso_mean_0': DIFFUSIVITY_SCALING,
+        'lambda_iso_mean_1': DIFFUSIVITY_SCALING,
+        'lambda_iso_std_0': DIFFUSIVITY_SCALING,
+        'lambda_iso_std_1': DIFFUSIVITY_SCALING,
+        'dist_height': 1
+    }
+    _parameter_types = {
+        'lambda_iso_mean_0': 'normal',
+        'lambda_iso_mean_1': 'normal',
+        'lambda_iso_std_0': 'normal',
+        'lambda_iso_std_1': 'normal',
+        'dist_height': 'normal',
+    }
+    _model_type = 'CompartmentModel'
+
+    def __init__(self, lambda_iso_mean_0=None, lambda_iso_std_0=None, lambda_iso_mean_1=None, lambda_iso_std_1=None,
+                 dist_height=None):
+        self.lambda_iso_mean_0 = lambda_iso_mean_0
+        self.lambda_iso_std_0 = lambda_iso_std_0
+        self.lambda_iso_mean_1 = lambda_iso_mean_1
+        self.lambda_iso_std_1 = lambda_iso_std_1
+        self.dist_height = dist_height
+
+    def __call__(self, acquisition_scheme, **kwargs):
+        r'''
+        Estimates the signal attenuation.
+
+        Parameters
+        ----------
+        acquisition_scheme : DmipyAcquisitionScheme instance,
+            An acquisition scheme that has been instantiated using dMipy.
+        kwargs: keyword arguments to the model parameter values,
+            Is internally given as **parameter_dictionary.
+
+        Returns
+        -------
+        attenuation : float or array, shape(N),
+            signal attenuation
+        '''
+        bvals = acquisition_scheme.bvalues
+        lambda_iso_mean_0 = kwargs.get('lambda_iso_mean_0', self.lambda_iso_mean_0)
+        lambda_iso_std_0 = kwargs.get('lambda_iso_std_0', self.lambda_iso_std_0)
+        lambda_iso_mean_1 = kwargs.get('lambda_iso_mean_1', self.lambda_iso_mean_1)
+        lambda_iso_std_1 = kwargs.get('lambda_iso_std_1', self.lambda_iso_std_1)
+        dist_height = kwargs.get('dist_height', self.dist_height)
+
+        r'''
+        define the grid (on which to estimate the distribution) based on
+        the minimum and maximum lambda_iso values
+        '''
+        lambda_iso_grid_0 = np.linspace(self.parameter_ranges['lambda_iso_mean_0'][0],
+                                        self.parameter_ranges['lambda_iso_mean_0'][1], 1000) \
+                            * self.parameter_scales['lambda_iso_mean_0']
+        lambda_iso_grid_1 = np.linspace(self.parameter_ranges['lambda_iso_mean_1'][0],
+                                        self.parameter_ranges['lambda_iso_mean_1'][1], 1000) \
+                            * self.parameter_scales['lambda_iso_mean_1']
+
+        r'''
+        make the distribution and normalise it
+        '''
+        # print(lambda_iso_grid_1)
+        # print(lambda_iso_mean_0)
+        # print(lambda_iso_std_0)
+        normaldist_0 = norm.pdf(lambda_iso_grid_0, lambda_iso_mean_0, lambda_iso_std_0)
+        normaldist_1 = norm.pdf(lambda_iso_grid_1, lambda_iso_mean_1, lambda_iso_std_1)
+
+        r'''adjust by the distribution height'''
+        normaldist = (dist_height * normaldist_0) + ((1 - dist_height) * normaldist_1)
+
+        r'''calculate the signal'''
+        # E_ball_1 = np.matmul(self.signal_dictionary, normaldist_1)
+        # E_ball_2 = np.matmul(self.signal_dictionary, normaldist_2)
+        E_ball = np.matmul(self.signal_dictionary, normaldist)
+
+        r'''adjust by the distribution height'''
+        # E_ball = (dist_height * E_ball_1) + ((1 - dist_height) * E_ball_2)
+
+        return E_ball
+
+
+# ecap stop
 
 class G2Zeppelin(ModelProperties, AnisotropicSignalModelProperties):
     r""" The Zeppelin model [1]_ - an axially symmetric Tensor - typically used
@@ -289,7 +411,7 @@ class G2Zeppelin(ModelProperties, AnisotropicSignalModelProperties):
             rh_array = self.rotational_harmonics_representation(
                 acquisition_scheme, **kwargs)
             E_mean[acquisition_scheme.unique_dwi_indices] = (
-                rh_array[:, 0] / (2 * np.sqrt(np.pi))
+                    rh_array[:, 0] / (2 * np.sqrt(np.pi))
             )
         return E_mean
 
@@ -390,11 +512,11 @@ class G3TemporalZeppelin(ModelProperties, AnisotropicSignalModelProperties):
 
         E_zeppelin = np.ones_like(bvals)
         for i, (bval_, n_, delta_, Delta_) in enumerate(
-            zip(bvals, n, delta, Delta)
+                zip(bvals, n, delta, Delta)
         ):
             # lambda_perp and A must be in the same unit
             restricted_term = (
-                A * (np.log(Delta_ / delta_) + 3 / 2.) / (Delta_ - delta_ / 3.)
+                    A * (np.log(Delta_ / delta_) + 3 / 2.) / (Delta_ - delta_ / 3.)
             )
             D_perp = lambda_inf + restricted_term
             D_h = np.diag(np.r_[lambda_par, D_perp, D_perp])
@@ -432,19 +554,19 @@ class G3TemporalZeppelin(ModelProperties, AnisotropicSignalModelProperties):
         E_mean = np.ones_like(acquisition_scheme.shell_bvalues)
 
         restricted_term = (
-            A * (np.log(Delta / delta) + 3 / 2.) / (Delta - delta / 3.)
+                A * (np.log(Delta / delta) + 3 / 2.) / (Delta - delta / 3.)
         )
         lambda_perp = lambda_inf + restricted_term
         if lambda_par > lambda_perp.max():  # use modified [kaden et al. 2016]
             exp_bl = np.exp(-bvals * lambda_perp)
             sqrt_bl = np.sqrt(bvals * (lambda_par - lambda_perp))
             E_mean[~acquisition_scheme.shell_b0_mask] = (
-                exp_bl * np.sqrt(np.pi) * erf(sqrt_bl) / (2 * sqrt_bl))
+                    exp_bl * np.sqrt(np.pi) * erf(sqrt_bl) / (2 * sqrt_bl))
         else:  # estimate spherical mean using rotational harmonics
             rh_array = self.rotational_harmonics_representation(
                 acquisition_scheme, **kwargs)
             E_mean[acquisition_scheme.unique_dwi_indices] = (
-                rh_array[:, 0] / (2 * np.sqrt(np.pi))
+                    rh_array[:, 0] / (2 * np.sqrt(np.pi))
             )
         return E_mean
 
