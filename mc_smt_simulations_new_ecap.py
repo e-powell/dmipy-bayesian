@@ -143,68 +143,6 @@ parameters_vector = mc_mod.parameters_to_parameter_vector(BundleModel_1_G2Zeppel
                                                                 BundleModel_1_partial_volume_0=f_stick)
                                                         
 
-    
-
-
-# In[7]:
-
-
-# datadir = '/Users/paddyslator/OneDrive - University College London/data/bayes-dmipy/'
-
-# from sklearn.mixture import GaussianMixture
-
-# # load the GMM on SMT fit to HCP 
-# # GMM
-# means = np.load(os.path.join(datadir, 'gmm_hcp_fit_means.npy'))
-# covar = np.load(os.path.join(datadir, 'gmm_hcp_fit_covariances.npy'))
-# gmm = GaussianMixture(n_components = len(means), covariance_type='full')
-# gmm.precisions_cholesky_ = np.linalg.cholesky(np.linalg.inv(covar))
-# gmm.weights_ = np.load(os.path.join(datadir, 'gmm_hcp_fit_weights.npy'))
-# gmm.means_ = means
-# gmm.covariances_ = covar
-
-# import random
-
-# n_vox = 500
-# #sample from GMM 
-# params,ROImask_gt = gmm.sample(2*n_vox)
-
-# #remove anything that's outside the bounds
-# outside = (params[:,0] < 0) | (params[:,0] > 3) | (params[:,1] < 0) | (params[:,1] > 1)
-# params = params[~outside,:]
-# ROImask_gt = ROImask_gt[~outside]
-
-# #trim down to the number of voxels
-# to_keep = np.sort(random.sample(range(0,np.sum(~outside)),n_vox)) 
-    
-# params = params[to_keep,:]
-# ROImask_gt = ROImask_gt[to_keep]
-
-# #reindex
-# ROImask_gt = ROImask_gt + 1
-
-# #sample the directions uniformly
-# mu_1 = [0, np.pi]
-# mu_2 = [-np.pi,np.pi]
-
-# mu_1 = np.random.uniform(low=mu_1[0],high=mu_1[1],size=n_vox)
-# mu_2 = np.random.uniform(low=mu_2[0],high=mu_2[1],size=n_vox)
-# mu = np.stack((mu_1,mu_2),axis=1)
-
-# #rescale diffusivity
-# params[:,0] = 1e-9 * params[:,0]
-
-# #put the parameters into vector for passing to dmipy
-# lambda_par = params[:,0]
-# f_stick = params[:,1]
-
-# parameters_vector = mc_mod.parameters_to_parameter_vector(BundleModel_1_G2Zeppelin_1_mu=mu,
-#                                                                  BundleModel_1_G2Zeppelin_1_lambda_par=lambda_par,
-#                                                                  BundleModel_1_partial_volume_0=f_stick)
-
-
-
-
 # In[8]:
 
 
@@ -231,7 +169,9 @@ acq_scheme = saved_acquisition_schemes.wu_minn_hcp_acquisition_scheme()
 #snr = (10,20)
 
 
-snr = (100,200)
+#snr = (100,200)
+
+snr = (50,100)
 
 signals = {}
 signals_retest = {}
@@ -245,159 +185,6 @@ for i in snr:
 
     #also do a "retest" simulation - same underlying parameters but different noise
     signals_retest[i] = add_noise(raw_signals,snr=i)
-
-
-# In[11]:
-
-
-# import nibabel as nib
-# import os
-# #save the simulations as nifti
-# datadir = "/Users/paddyslator/OneDrive - University College London/data/bayes-dmipy/simdata"
-
-# for i in snr:
-        
-#     #note that image is reshaped into 4D
-#     img = nib.Nifti1Image(np.reshape(signals[i],(n_vox,1,1,acq_scheme.number_of_measurements)), np.eye(4))        
-#     nib.save(img, os.path.join(datadir, 'simimg_test_nvox_' + str(n_vox) + '_snr_' + str(i) + '.nii.gz' ))  
-    
-#     img_retest = nib.Nifti1Image(np.reshape(signals_retest[i],(n_vox,1,1,acq_scheme.number_of_measurements)), np.eye(4))        
-#     nib.save(img, os.path.join(datadir, 'simimg_retest_nvox_' + str(n_vox) + '_snr_' + str(i) + '.nii.gz' ))  
-    
-
-
-# In[12]:
-
-
-# import glob
-# import os 
-# simimgs = glob.glob(datadir + '/*')
-
-# for img in simimgs:
-#     img_path_shell = img.replace(" ", "\ ") 
-#     #denoise the data!        
-#     noise_map_path = img_path_shell.removesuffix('.nii.gz') + '_noise_map.nii.gz'
-#     diff_denoised_path = img_path_shell.removesuffix('.nii.gz') + '_denoised.nii.gz'
-    
-#     os.system('dwidenoise -noise ' + noise_map_path + ' ' + img_path_shell + ' ' + diff_denoised_path)    
-
-    
-
-
-# In[13]:
-
-
-# #now load in the denoised and noise maps 
-# signals_den = {}
-# signals_retest_den = {}
-# sigma = {}
-# sigma_retest = {}
-
-
-# for i in snr:    
-#     img = nib.load(os.path.join(datadir, 'simimg_test_nvox_' + str(n_vox) + '_snr_' + str(i) + '_denoised.nii.gz' ))  
-#     signals_den[i] = img.get_fdata()
-#     signals_den[i] = np.reshape(signals_den[i],(n_vox,acq_scheme.number_of_measurements))
-    
-#     sigma_img = nib.load(os.path.join(datadir, 'simimg_test_nvox_' + str(n_vox) + '_snr_' + str(i) + '_noise_map.nii.gz' ))
-#     sigma[i] = sigma_img.get_fdata()
-#     sigma[i] = np.reshape(sigma[i],(n_vox))
-
-    
-#     img_retest = nib.load(os.path.join(datadir, 'simimg_retest_nvox_' + str(n_vox) + '_snr_' + str(i) + '_denoised.nii.gz' ))  
-#     signals_retest_den[i] = img.get_fdata()
-#     signals_retest_den[i] = np.reshape(signals_den[i],(n_vox,acq_scheme.number_of_measurements))
-
-    
-#     sigma_img_retest = nib.load(os.path.join(datadir, 'simimg_retest_nvox_' + str(n_vox) + '_snr_' + str(i) + '_noise_map.nii.gz' ))
-#     sigma_retest[i] = sigma_img_retest.get_fdata()
-#     sigma_retest[i] = np.reshape(sigma_retest[i],(n_vox))
-
-
-
-# In[14]:
-
-
-# #rician correction
-# signals_den_cor = {}
-# signals_retest_den_cor = {}
-
-# for i in snr:    
-#     signals_den_cor[i] = np.sqrt(signals[i]**2 - (1/i)**2)
- 
-#     #signals_den_cor[i] = np.sqrt(np.abs(signals_den[i]**2 - np.tile(sigma[i]**2,(288,1)).T))
-     
-#     #signals_retest_den_cor[i] = np.sqrt(np.abs(signals_retest_den[i]**2 - np.tile(sigma_retest[i]**2,(288,1)).T))
-        
-    
-#     signals_retest_den_cor[i] = np.sqrt(signals_retest[i]**2 - (1/i)**2)
-    
-    
-# #save the corrected data
-# for i in snr:
-        
-#     #note that image is reshaped into 4D
-#     img = nib.Nifti1Image(np.reshape(signals_den_cor[i],(n_vox,1,1,acq_scheme.number_of_measurements)), np.eye(4))        
-#     nib.save(img, os.path.join(datadir, 'simimg_test_nvox_' + str(n_vox) + '_snr_' + str(i) + '_denoised_rician_cor.nii.gz' ))  
-    
-#     img_retest = nib.Nifti1Image(np.reshape(signals_retest_den_cor[i],(n_vox,1,1,acq_scheme.number_of_measurements)), np.eye(4))        
-#     nib.save(img, os.path.join(datadir, 'simimg_retest_nvox_' + str(n_vox) + '_snr_' + str(i) + '_denoised_rician_cor.nii.gz' ))  
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[15]:
-
-
-# #use the corrected data 
-
-# signals = signals_den_cor
-
-# signals_retest = signals_retest_den_cor
-
-
-# In[16]:
-
-
-# #calculate the ROImask using a diffusion tensor fit in dipy
-
-# #set up the dipy aquisition
-# from dipy.core.gradients import gradient_table
-# gtab = gradient_table(acq_scheme.bvalues, acq_scheme.gradient_directions)
-
-# #
-# import dipy.reconst.dti as dti
-
-# tenmodel = dti.TensorModel(gtab)
-
-# tenfit = tenmodel.fit(signals)
-
-
-# In[17]:
-
-
-# #threshold md and fa to estimate the ROImask
-# md_thresh = 1e-9
-# fa_thresh = 0.8
-
-# ROImask = np.zeros_like(ROImask_gt)
-
-# #white matter - less than md threshold and higher than fa threshold
-# ROImask[(tenfit.md < md_thresh) & (tenfit.fa > fa_thresh)] = 1
-# #grey matter - less than md threshold and less than fa threshold
-# ROImask[(tenfit.md < md_thresh) & (tenfit.fa < fa_thresh)] = 2
-# #csf - higher than md threshold and lower than fa threshold
-# ROImask[(tenfit.md > md_thresh) & (tenfit.fa < fa_thresh)] = 3
 
 
 
@@ -482,54 +269,6 @@ for i in snr:
 
 
 
-
-# In[20]:
-
-
-#estimated vs. gt parameters coloured by gt ROI 
-
-# short_param_names = ('stick volume fraction','stick diffusivity (m$^2$/s)')
-
-
-# fig, axs = plt.subplots(len(snr), 2, figsize=[7,3*len(snr)])
-
-
-# for i,plt_i in zip(snr,range(0,len(snr))):
-#     for roi in range(0,int(np.max(ROImask_gt))+1):
-#         axs[plt_i,0].plot(f_stick[ROImask_gt==roi],mc_smt_mod_lsq_fit[i].fitted_parameters['BundleModel_1_partial_volume_0'][ROImask_gt==roi],'o',markersize=1)
-
-#         axs[plt_i,1].plot(lambda_par[ROImask_gt==roi],mc_smt_mod_lsq_fit[i].fitted_parameters['BundleModel_1_G2Zeppelin_1_lambda_par'][ROImask_gt==roi],'o',markersize=1)    
-
-#         #TO DO calculate MSE, bias, variance
-
-
-
-
-#         axs[plt_i,0].set_ylabel('SNR = ' + str(i) + '\nEstimated Value')
-
-
-#         if plt_i==0:
-#             axs[plt_i,0].set_title(short_param_names[0],fontsize=10)
-#             axs[plt_i,1].set_title(short_param_names[1],fontsize=10)
-
-
-#         if plt_i==len(snr)-1:
-#             axs[plt_i,0].set_xlabel('Ground Truth Value')
-#             axs[plt_i,1].set_xlabel('Ground Truth Value')
-
-
-
-
-
-# #add legend
-# leg = fig.legend(('White matter 1','Grey matter', 'CSF', 'White matter 2'), 
-#            loc='upper center',ncol=2,
-#             bbox_to_anchor=(0.5, 0.94))
-
-    
-#
-
-
 def plot_gt_v_est(f_stick,lambda_par,ROImask,mc_smt_mod_fit_dict):
     short_param_names = ('stick volume fraction','stick diffusivity (m$^2$/s)')
 
@@ -591,37 +330,6 @@ plot_gt_v_est(f_stick,lambda_par,ROImask_gt,mc_smt_mod_lsq_fit)
 #axs[0].set_ylim([0,1])
 
 
-# In[ ]:
-
-
-
-
-
-# In[21]:
-
-
-# np.shape(mc_smt_mod_lsq_fit.fitted_parameters['BundleModel_1_partial_volume_0'][ROImask==roi])
-# np.shape(mc_smt_mod_lsq_fit_retest.fitted_parameters['BundleModel_1_partial_volume_0'][ROImask_retest==roi])
-
-
-# In[22]:
-
-
-#test-retest plot 
-
-# fig, axs = plt.subplots(1, 2, figsize=[10, 5])
-
-# for roi in range(0,int(np.max(ROImask))+1):
-#     axs[0].plot(mc_smt_mod_lsq_fit.fitted_parameters['BundleModel_1_partial_volume_0'][ROImask_gt==roi],
-#                 mc_smt_mod_lsq_fit_retest.fitted_parameters['BundleModel_1_partial_volume_0'][ROImask_gt==roi],'o',markersize=1)
-        
-#     axs[1].plot(mc_smt_mod_lsq_fit.fitted_parameters['BundleModel_1_G2Zeppelin_1_lambda_par'][ROImask_gt==roi],
-#                 mc_smt_mod_lsq_fit_retest.fitted_parameters['BundleModel_1_G2Zeppelin_1_lambda_par'][ROImask_gt==roi],'o',markersize=1)    
-
-    
-    
-# print("Plot colours show the ground truth ROIs")
-    
 
 
 # In[23]:
@@ -658,6 +366,7 @@ for i in snr:
 
 # In[25]:
 
+'''
 from importlib import reload
 import time 
 import fit_bayes_new, fit_bayes_new_new
@@ -713,7 +422,7 @@ for i in snr:
 
     #retest
     parameters_bayes_dict_retest[i], acceptance_rate_retest[i], parameter_convergence_retest[i], likelihood_retest[i], weights_retest[i], gibbs_mu_tform_retest[i], gibbs_sigma_tform_retest[i], gibbs_mu_norm_retest[i], gibbs_sigma_norm_retest[i]       = fit_bayes_new.fit(mc_smt_mod, acq_scheme_smt, signals_sm_retest[i], E_fit_retest[i], mc_smt_mod_lsq_fit_retest[i].fitted_parameters, ROImask_retest[i], nsteps, burn_in, nupdates)
-
+'''
 
 # In[25]: ECAP
 from importlib import reload
@@ -724,8 +433,8 @@ fit_bayes_new = reload(fit_bayes_new)
 fit_bayes_new_new = reload(fit_bayes_new_new)
 
 
-nsteps=1000
-burn_in=500
+nsteps=200
+burn_in=100
 nupdates=20
 
 parameters_bayes_dict={}
@@ -763,14 +472,25 @@ for param in mc_smt_mod_ecap.parameter_names:
     print(param)
     for j in range(0,mc_smt_mod_lsq_fit_ecap[i].fitted_parameters[param].__len__()):
         mc_smt_mod_lsq_fit_ecap[i].fitted_parameters[param][j] = mc_smt_mod_lsq_fit_ecap[i].fitted_parameters[param][j] / np.array(mc_smt_mod_ecap.parameter_scales[param])
+#    for j in range(2):
+#        print(j)
+#        mc_smt_mod_ecap.parameter_ranges[param][j] = mc_smt_mod_ecap.parameter_ranges[param][j] / np.array(mc_smt_mod_ecap.parameter_scales[param])
 
+params_final, acceptance_rate, param_conv, likelihood_stored, \
+    w_stored, gibbs_mu, gibbs_sigma, gibbs_mu_norm, \
+    gibbs_sigma_norm, mask_new = \
+        fit_bayes_new_new.fit(mc_smt_mod_ecap, acq_scheme_smt, signals_sm[i], E_fit[i], \
+                              mc_smt_mod_lsq_fit_ecap[i].fitted_parameters, None, \
+                              None,  ROImask[i], nsteps, burn_in, nupdates, 0)
+'''
 parameters_bayes_dict[i], acceptance_rate[i], parameter_convergence[i], \
 likelihood[i], weights[i], gibbs_mu_tform[i], gibbs_sigma_tform[i],\
 gibbs_mu_norm[i], gibbs_sigma_norm[i] = \
-fit_bayes_new_new.fit(mc_smt_mod, acq_scheme_smt, signals_sm[i], E_fit[i], \
+fit_bayes_new_new.fit(mc_smt_mod_ecap, acq_scheme_smt, signals_sm[i], E_fit[i], \
                       mc_smt_mod_lsq_fit_ecap[i].fitted_parameters, None, \
                       None,  ROImask[i], nsteps, burn_in, nupdates, 0)
 
+'''
 # In[26]:
 
 from copy import copy, deepcopy
@@ -1818,3 +1538,4 @@ weights
 
 
 # # 
+'''
