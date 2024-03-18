@@ -389,13 +389,15 @@ def fit(model, acq_scheme, data, E_fit, params_init_vector, sigma0_norm_struct,
             nvox_roi = idx_roi.__len__()                                        # no. voxels in ROI
 
             # initialise sigma for this ROI
-            sigma = np.cov(np.transpose(model_reduced.parameters_to_parameter_vector(**params_current_tform)[idx_roi]))
+            if j==0:
+                sigma = np.cov(np.transpose(model_reduced.parameters_to_parameter_vector(**params_current_tform)[idx_roi]))
 
             #-------------------------------------------------------------#
             # TESTING - do calculations in normal parameter ranges
             params_current = tform_params(params_current_tform, model.parameter_names, model, None, 'r')
             params_current_vector = model_reduced.parameters_to_parameter_vector(**params_current)[idx_roi]
-            sigma_norm = np.cov(np.transpose(model_reduced.parameters_to_parameter_vector(**params_current)[idx_roi]))
+            if j==0:
+                sigma_norm = np.cov(np.transpose(model_reduced.parameters_to_parameter_vector(**params_current)[idx_roi]))
             #-------------------------------------------------------------#
 
             # FIXME: quick hack to allow for different relaxation times in different ROIs 
