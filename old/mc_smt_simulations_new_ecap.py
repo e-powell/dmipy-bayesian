@@ -428,9 +428,8 @@ for i in snr:
 from importlib import reload
 from copy import copy, deepcopy
 import time 
-import fit_bayes_new, fit_bayes_new_new
+import fit_bayes_new
 fit_bayes_new = reload(fit_bayes_new)
-fit_bayes_new_new = reload(fit_bayes_new_new)
 
 
 nsteps=200
@@ -479,9 +478,9 @@ for param in mc_smt_mod_ecap.parameter_names:
 params_final, acceptance_rate, param_conv, likelihood_stored, \
     w_stored, gibbs_mu, gibbs_sigma, gibbs_mu_norm, \
     gibbs_sigma_norm, mask_new = \
-        fit_bayes_new_new.fit(mc_smt_mod_ecap, acq_scheme_smt, signals_sm[i], E_fit[i], \
-                              mc_smt_mod_lsq_fit_ecap[i].fitted_parameters, None, \
-                              None,  ROImask[i], nsteps, burn_in, nupdates, 0)
+        fit_bayes_new.fit(mc_smt_mod_ecap, acq_scheme_smt, signals_sm[i], E_fit[i], \
+                          mc_smt_mod_lsq_fit_ecap[i].fitted_parameters, None, \
+                          None,  ROImask[i], nsteps, burn_in, nupdates, 0)
 '''
 parameters_bayes_dict[i], acceptance_rate[i], parameter_convergence[i], \
 likelihood[i], weights[i], gibbs_mu_tform[i], gibbs_sigma_tform[i],\

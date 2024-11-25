@@ -4,7 +4,7 @@ save_data_on_exit = True
 save_history = True
 save_non_project_files = False
 project_type = 'empty-project-type'
-recent_files = ['mc_smt_hcp.py', 'mc_smt_simulations_new.py', 'fit_bayes_new.py', 'useful_functions.py', 'setup_models.py', 'simulate_data.py']
+recent_files = ['fit_bayes_new.py', '../../../.conda/envs/dmipy-bayesian/lib/python3.9/site-packages/dipy/__init__.py', '../../../.conda/envs/dmipy-bayesian/lib/python3.9/site-packages/numpy/testing/__init__.py', '../../../.conda/envs/dmipy-bayesian/lib/python3.9/site-packages/dipy/core/__init__.py', '../../../.conda/envs/dmipy-bayesian/lib/python3.9/site-packages/dipy/reconst/__init__.py', '../../../.conda/envs/dmipy-bayesian/lib/python3.9/site-packages/dipy/tracking/__init__.py', '../../../.conda/envs/dmipy-bayesian/lib/python3.9/site-packages/numba/np/ufunc/decorators.py', '../../../.conda/envs/dmipy-bayesian/lib/python3.9/site-packages/numba/np/ufunc/ufuncbuilder.py']
 
 [main]
 version = 0.2.0
